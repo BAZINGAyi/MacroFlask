@@ -35,13 +35,16 @@ from contextlib import contextmanager
 
 
 class LightSqlAlchemy:
-    def __init__(self, db_config: dict, app=None, **kwargs):
+    def __init__(self, db_config: dict, app=None, open_logging=False, **kwargs):
         """
         Initialize the LightSqlAlchemy object.
 
         :param uri: Database connection URI, used only in non-Flask environments.
         :param app: Flask application instance, used only in Flask environments.
         """
+        # set logging
+        self.set_sqlalchemy_logging(open_logging)
+
         self.engine = None
         self.session_local = None
         self.session = None
@@ -63,20 +66,22 @@ class LightSqlAlchemy:
                     raise ValueError(f"url is required with key: {key}")
 
         if app:
-            self._init_app(app)
+            self._init_app(app, db_config)
 
         else:
             self._init_non_flask_env(db_config, **kwargs)
 
-    def _init_app(self, app: Flask):
+    def _init_app(self, app: Flask, db_config: dict, **kwargs):
         """
         Initialize Flask application with database engine and session configuration.
 
         :param app: Flask application instance.
         """
-        self.engine = create_engine(app.config['SQLALCHEMY_DATABASE_URI'])
-        self.session_local = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
-        self.session = scoped_session(self.session_local)
+        for bind_key, db_obj in db_config.items():
+            if bind_key not in self.bind_key_models:
+                raise ValueError(f"No model class registered for bind: {bind_key}")
+            base_class = self.bind_key_models[bind_key]
+            self._create_engine_and_session(**db_obj, base_class=base_class, **kwargs)
 
         # Register teardown function to ensure session is cleaned up at the end of each request.
         app.teardown_appcontext(self._teardown_session)
@@ -136,10 +141,20 @@ class LightSqlAlchemy:
             "pool_timeout": 30,
             # reset the timeout of idle connections in the connection pool (seconds)
             "pool_recycle": 2 * 60 * 60,
+            # isolation level for the engine
+            "isolation_level": "READ COMMITTED",
+            # enable the echo mode for debugging
+            "echo": False,
+            # enable the echo mode for the connection pool, input 'debug' if you want to debug
+            "echo_pool": False,
+            # enable the pool pre-ping to test connections before using them
+            # "pool_pre_ping": False,
         }
         if "engine_options" in kwargs:
             engine_options.update(kwargs.pop("engine_options"))
         engine = create_engine(url, **engine_options)
+        with engine.connect():
+            print("Connected to database: " + str(url))
 
         # init session configuration
         session_options = {
@@ -155,7 +170,7 @@ class LightSqlAlchemy:
         # Configure the session binds
         self._configure_session_binds(base_class, engine)
 
-    def get_session(self):
+    def _get_session(self):
         """
         Retrieve the current thread's session instance.
 
@@ -166,6 +181,7 @@ class LightSqlAlchemy:
         if not self.session:
             raise ValueError("Session has not been initialized.")
         return self.session()
+
     @contextmanager
     def get_flask_session(self):
         """
@@ -173,7 +189,7 @@ class LightSqlAlchemy:
 
         :yield: The session instance for the current thread.
         """
-        session = self.get_session()
+        session = self._get_session()
         try:
             yield session
             session.commit()  # Commit the transaction
@@ -188,7 +204,7 @@ class LightSqlAlchemy:
 
         :yield: The session instance for the current thread.
         """
-        session = self.get_session()
+        session = self._get_session()
         try:
 
             yield session
@@ -218,6 +234,19 @@ class LightSqlAlchemy:
         """
         if self.session:
             self.session.remove()
+
+    @staticmethod
+    def set_sqlalchemy_logging(open_logging: bool):
+        """
+        Set up logging for SQLAlchemy to log all SQL queries.
+        :return:
+        """
+        import logging
+        logging.basicConfig()
+        if open_logging:
+            logging.getLogger('sqlalchemy.echo').setLevel(logging.INFO)
+            logging.getLogger('sqlalchemy.pool').setLevel(logging.INFO)
+            logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
 
 
 def check_concurrent_with_one_db():
@@ -276,6 +305,7 @@ def check_concurrent_with_one_db():
         print(sys.getrefcount(lsa))
         print("done")
         time.sleep(30)
+
 
 def use_multi_dbs():
     # Q2 支持多数据库, support multiple databases, 测试完成
@@ -378,11 +408,167 @@ def use_multi_dbs():
         time.sleep(30)
 
 
-if __name__ == '__main__':
+def flask_env_run():
+    from sqlalchemy import Integer, String, Column
+    from sqlalchemy.orm import Mapped, sessionmaker
+    from sqlalchemy.orm import DeclarativeBase
 
+    class Base(DeclarativeBase):
+        pass
+
+    class Base2(DeclarativeBase):
+        pass
+
+    class User(Base):
+        __tablename__ = "user"
+
+        id: Mapped[int] = Column(Integer, primary_key=True, autoincrement=True)
+        username: Mapped[str] = Column(String(255), nullable=False)
+        email: Mapped[str] = Column(String(255), nullable=False)
+
+    class User2(Base2):
+        __tablename__ = "user"
+
+        id: Mapped[int] = Column(Integer, primary_key=True, autoincrement=True)
+        username: Mapped[str] = Column(String(255), nullable=False)
+        email: Mapped[str] = Column(String(255), nullable=False)
+
+    # 定义数据库连接 URI
+    db_config_dict = {
+        'database1': {
+            'url': get_config().DATABASE_URI,
+            "model_class": Base,
+            "engine_options": {},
+            "session_options": {}
+        },
+        'database2': {
+            'url': get_config().DATABASE_URI_1,
+            "model_class": Base2,
+            "engine_options": {},
+            "session_options": {}
+        }
+    }
+
+    app = Flask(__name__)
+
+    start_time = int(time.time())
+    db = LightSqlAlchemy(app=app, db_config=db_config_dict)
+
+    with app.app_context():
+        print("init engine: " + str(int(time.time()) - start_time))
+        session_id_in_same_thread = None
+        with db.get_flask_session() as session:
+            session_id_in_same_thread = id(session)
+            print("session: " + str(id(session)))
+            print("init session: " + str(int(time.time()) - start_time))
+            for i in range(10):
+                new_user = User(username="d1", email="d1")
+                session.add(new_user)
+
+        session_id_1_in_same_thread = None
+        with db.get_flask_session() as session:
+            session_id_1_in_same_thread = id(session)
+            print("session: " + str(id(session)))
+            print("init session: " + str(int(time.time()) - start_time))
+            for i in range(10):
+                new_user = User2(username="d2", email="d2")
+                session.add(new_user)
+
+        print("session is reuse: " +str(session_id_in_same_thread == session_id_1_in_same_thread))
+        print("done: " + str(int(time.time()) - start_time))
+
+
+def flask_env_run_memory_lose():
+    from sqlalchemy import Integer, String, Column
+    from sqlalchemy.orm import Mapped, sessionmaker
+    from sqlalchemy.orm import DeclarativeBase
+
+    class Base(DeclarativeBase):
+        pass
+
+    class Base2(DeclarativeBase):
+        pass
+
+    class User(Base):
+        __tablename__ = "user"
+
+        id: Mapped[int] = Column(Integer, primary_key=True, autoincrement=True)
+        username: Mapped[str] = Column(String(255), nullable=False)
+        email: Mapped[str] = Column(String(255), nullable=False)
+
+    class User2(Base2):
+        __tablename__ = "user"
+
+        id: Mapped[int] = Column(Integer, primary_key=True, autoincrement=True)
+        username: Mapped[str] = Column(String(255), nullable=False)
+        email: Mapped[str] = Column(String(255), nullable=False)
+
+    # 定义数据库连接 URI
+    db_config_dict = {
+        'database1': {
+            'url': get_config().DATABASE_URI,
+            "model_class": Base,
+            "engine_options": {},
+            "session_options": {}
+        },
+        'database2': {
+            'url': get_config().DATABASE_URI_1,
+            "model_class": Base2,
+            "engine_options": {},
+            "session_options": {}
+        }
+    }
+
+    app = Flask(__name__)
+
+    start_time = int(time.time())
+    db = LightSqlAlchemy(app=app, db_config=db_config_dict)
+
+    while True:
+        show_memory_info("Current")
+        def insert_d1():
+            # print("init engine: " + str(int(time.time()) - start_time))
+            session_id_in_same_thread = None
+            with db.get_flask_session() as session:
+                session_id_in_same_thread = id(session)
+                # print("session: " + str(id(session)))
+                # print("init session: " + str(int(time.time()) - start_time))
+                for i in range(10):
+                    new_user = User(username="d1", email="d1")
+                    session.add(new_user)
+
+        def insert_d2():
+            session_id_1_in_same_thread = None
+            with db.get_flask_session() as session:
+                session_id_1_in_same_thread = id(session)
+                # print("session: " + str(id(session)))
+                # print("init session: " + str(int(time.time()) - start_time))
+                for i in range(10):
+                    new_user = User2(username="d2", email="d2")
+                    session.add(new_user)
+
+        with app.app_context():
+            threads = [threading.Thread(target=insert_d1) for _ in range(100)]
+            for thread in threads:
+                thread.start()
+            threads1 = [threading.Thread(target=insert_d2) for _ in range(40)]
+            for thread in threads1:
+                thread.start()
+
+            # wait for all threads to finish
+            for thread in threads:
+                thread.join()
+            for thread in threads1:
+                thread.join()
+
+        time.sleep(30)
+
+
+if __name__ == '__main__':
     # Q3 了解 weakref
 
     # Q4 增加监听器，用于 debug
+    # https://docs.sqlalchemy.org/en/20/core/events.html
 
     from sqlalchemy import Integer, String, Column
     from sqlalchemy.orm import Mapped, sessionmaker
@@ -424,22 +610,49 @@ if __name__ == '__main__':
         }
     }
 
+    app = Flask(__name__)
+
     start_time = int(time.time())
-    db = LightSqlAlchemy(db_config=db_config_dict)
+    db = LightSqlAlchemy(app=app, db_config=db_config_dict)
 
-    print("init engine: " + str(int(time.time()) - start_time))
+    while True:
+        show_memory_info("Current")
+        def insert_d1():
+            # print("init engine: " + str(int(time.time()) - start_time))
+            session_id_in_same_thread = None
+            with db.get_flask_session() as session:
+                session_id_in_same_thread = id(session)
+                # print("session: " + str(id(session)))
+                # print("init session: " + str(int(time.time()) - start_time))
+                for i in range(10):
+                    new_user = User(username="d1", email="d1")
+                    session.add(new_user)
 
-    with db.get_non_flask_session() as session:
-        print("init session: " + str(int(time.time()) - start_time))
-        for i in range(30):
-            new_user = User(username="d1", email="d1")
-            session.add(new_user)
+        def insert_d2():
+            session_id_1_in_same_thread = None
+            with db.get_flask_session() as session:
+                session_id_1_in_same_thread = id(session)
+                # print("session: " + str(id(session)))
+                # print("init session: " + str(int(time.time()) - start_time))
+                for i in range(10):
+                    new_user = User2(username="d2", email="d2")
+                    session.add(new_user)
 
-    with db.get_non_flask_session() as session:
-        new_user = User2(username="d2", email="d2")
-        session.add(new_user)
+        with app.app_context():
+            threads = [threading.Thread(target=insert_d1) for _ in range(100)]
+            for thread in threads:
+                thread.start()
+            threads1 = [threading.Thread(target=insert_d2) for _ in range(40)]
+            for thread in threads1:
+                thread.start()
 
-    print("done: " + str(int(time.time()) - start_time))
+            # wait for all threads to finish
+            for thread in threads:
+                thread.join()
+            for thread in threads1:
+                thread.join()
+
+        time.sleep(30)
 
 
 
