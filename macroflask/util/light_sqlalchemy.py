@@ -35,14 +35,16 @@ from contextlib import contextmanager
 
 
 class LightSqlAlchemy:
-    def __init__(self, db_config: dict, app=None, open_logging=False, **kwargs):
+    def __init__(self, is_flask=False, db_config: dict = None, open_logging=False, **kwargs):
         """
         Initialize the LightSqlAlchemy object.
 
-        :param uri: Database connection URI, used only in non-Flask environments.
-        :param app: Flask application instance, used only in Flask environments.
+        :param is_flask: Whether the environment is a Flask application. Defaults to False.
+        :param db_config: Database configuration dictionary. Defaults to None.
+        :param open_logging: Whether to enable logging for SQLAlchemy. Defaults to False.
         """
         # set logging
+        self.is_flask = is_flask
         self.set_sqlalchemy_logging(open_logging)
 
         self.engine = None
@@ -53,30 +55,22 @@ class LightSqlAlchemy:
         self.bind_model_engines = {}
         self.bind_key_models = {}
 
-        # check db config parameter
-        if isinstance(db_config, dict) and db_config:
-            for key, db_obj in db_config.items():
-                # register key model
-                if not db_obj.get("model_class"):
-                    raise ValueError(f"model_class is required")
-                self._register_model(key, db_obj["model_class"])
-
-                # check db url
-                if not db_obj.get("url"):
-                    raise ValueError(f"url is required with key: {key}")
-
-        if app:
-            self._init_app(app, db_config)
+        if is_flask:
+            pass
 
         else:
+            self.validate_db_config(db_config)
             self._init_non_flask_env(db_config, **kwargs)
 
-    def _init_app(self, app: Flask, db_config: dict, **kwargs):
+    def init_flask_app(self, app: Flask, db_config: dict, **kwargs):
         """
         Initialize Flask application with database engine and session configuration.
 
         :param app: Flask application instance.
+        :param db_config: Database configuration dictionary.
         """
+        self.validate_db_config(db_config)
+
         for bind_key, db_obj in db_config.items():
             if bind_key not in self.bind_key_models:
                 raise ValueError(f"No model class registered for bind: {bind_key}")
@@ -183,24 +177,9 @@ class LightSqlAlchemy:
         return self.session()
 
     @contextmanager
-    def get_flask_session(self):
+    def get_db_session(self):
         """
-        Context manager for managing session lifecycle in Flask environments.
-
-        :yield: The session instance for the current thread.
-        """
-        session = self._get_session()
-        try:
-            yield session
-            session.commit()  # Commit the transaction
-        except Exception as e:
-            session.rollback()  # Rollback the transaction in case of an exception
-            raise e  # Re-raise the exception
-
-    @contextmanager
-    def get_non_flask_session(self):
-        """
-        Context manager for managing session lifecycle in non-Flask environments.
+        Context manager for managing session lifecycle in Flask or non-Flask environments.
 
         :yield: The session instance for the current thread.
         """
@@ -216,7 +195,11 @@ class LightSqlAlchemy:
             raise e  # Re-raise the exception
 
         finally:
-            self.close_session()  # Close the session and connections when the context ends
+
+            # if current env is not flask, close the session.
+            # Otherwise, the session will be closed by Flask
+            if not self.is_flask:
+                self.close_session()  # Close the session and connections when the context ends
 
     def dispose_engine(self):
         """
@@ -248,6 +231,22 @@ class LightSqlAlchemy:
             logging.getLogger('sqlalchemy.pool').setLevel(logging.INFO)
             logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
 
+    def validate_db_config(self, db_config: dict):
+        if not isinstance(db_config, dict) or not db_config:
+            raise ValueError("db_config must be a non-empty dictionary.")
+
+        # check db config parameter
+        if isinstance(db_config, dict) and db_config:
+            for key, db_obj in db_config.items():
+                # register key model
+                if not db_obj.get("model_class"):
+                    raise ValueError(f"model_class is required")
+                self._register_model(key, db_obj["model_class"])
+
+                # check db url
+                if not db_obj.get("url"):
+                    raise ValueError(f"url is required with key: {key}")
+
 
 def check_concurrent_with_one_db():
     # Q1 100 并发，没有内存泄露的问题,
@@ -270,20 +269,23 @@ def check_concurrent_with_one_db():
         email: Mapped[str] = Column(String(255), nullable=False)
 
     # none-flask environment
-    url = get_config().DATABASE_URI
-    engine_options = {
-        # "pool_size": 5,  # 增大连接池大小
-        # "max_overflow": 1,  # 增大溢出连接数
-        # "pool_timeout": 1,  # 增加连接超时时间（秒）
-        # "pool_recycle": 5,  # 重置连接池中的空闲连接的超时时间（秒）
+    db_config_dict = {
+        'database1': {
+            'url': get_config().DATABASE_URI,
+            "model_class": Base,
+            "engine_options": {
+                # "pool_size": 5,  # 增大连接池大小
+                # "max_overflow": 1,  # 增大溢出连接数
+                # "pool_timeout": 1,  # 增加连接超时时间（秒）
+                # "pool_recycle": 5,  # 重置连接池中的空闲连接的超时时间（秒）
+            },
+            "session_options": {}
+        }
     }
-    options = {
-        "engine_options": engine_options
-    }
-    lsa = LightSqlAlchemy(db_url=url, **options)
+    lsa = LightSqlAlchemy(db_config=db_config_dict)
 
     def worker():
-        with lsa.get_non_flask_session() as session:
+        with lsa.get_db_session() as session:
             # Perform database operations
             # print("session-id" + str(id(session)))
             users = session.query(User).all()
@@ -368,7 +370,7 @@ def use_multi_dbs():
 
     def insert_d1():
         start_time = int(time.time())
-        with db.get_non_flask_session() as session:
+        with db.get_db_session() as session:
             users = []
             for i in range(1):
                 new_user = User(username="d1", email="d1")
@@ -380,7 +382,7 @@ def use_multi_dbs():
 
     def insert_d2():
         start_time = int(time.time())
-        with db.get_non_flask_session() as session:
+        with db.get_db_session() as session:
             users = []
             for i in range(1):
                 new_user = User2(username="d2", email="d2")
@@ -452,12 +454,13 @@ def flask_env_run():
     app = Flask(__name__)
 
     start_time = int(time.time())
-    db = LightSqlAlchemy(app=app, db_config=db_config_dict)
+    db = LightSqlAlchemy(is_flask=True)
+    db.init_flask_app(app=app, db_config=db_config_dict)
 
     with app.app_context():
         print("init engine: " + str(int(time.time()) - start_time))
         session_id_in_same_thread = None
-        with db.get_flask_session() as session:
+        with db.get_db_session() as session:
             session_id_in_same_thread = id(session)
             print("session: " + str(id(session)))
             print("init session: " + str(int(time.time()) - start_time))
@@ -466,7 +469,7 @@ def flask_env_run():
                 session.add(new_user)
 
         session_id_1_in_same_thread = None
-        with db.get_flask_session() as session:
+        with db.get_db_session() as session:
             session_id_1_in_same_thread = id(session)
             print("session: " + str(id(session)))
             print("init session: " + str(int(time.time()) - start_time))
@@ -522,14 +525,15 @@ def flask_env_run_memory_lose():
     app = Flask(__name__)
 
     start_time = int(time.time())
-    db = LightSqlAlchemy(app=app, db_config=db_config_dict)
+    db = LightSqlAlchemy(app=app)
+    db.init_flask_app(app=app, db_config=db_config_dict)
 
     while True:
         show_memory_info("Current")
         def insert_d1():
             # print("init engine: " + str(int(time.time()) - start_time))
             session_id_in_same_thread = None
-            with db.get_flask_session() as session:
+            with db.get_db_session() as session:
                 session_id_in_same_thread = id(session)
                 # print("session: " + str(id(session)))
                 # print("init session: " + str(int(time.time()) - start_time))
@@ -539,7 +543,7 @@ def flask_env_run_memory_lose():
 
         def insert_d2():
             session_id_1_in_same_thread = None
-            with db.get_flask_session() as session:
+            with db.get_db_session() as session:
                 session_id_1_in_same_thread = id(session)
                 # print("session: " + str(id(session)))
                 # print("init session: " + str(int(time.time()) - start_time))
@@ -613,14 +617,15 @@ if __name__ == '__main__':
     app = Flask(__name__)
 
     start_time = int(time.time())
-    db = LightSqlAlchemy(app=app, db_config=db_config_dict)
+    db = LightSqlAlchemy(is_flask=True)
+    db.init_flask_app(app=app, db_config=db_config_dict)
 
     while True:
         show_memory_info("Current")
         def insert_d1():
             # print("init engine: " + str(int(time.time()) - start_time))
             session_id_in_same_thread = None
-            with db.get_flask_session() as session:
+            with db.get_db_session() as session:
                 session_id_in_same_thread = id(session)
                 # print("session: " + str(id(session)))
                 # print("init session: " + str(int(time.time()) - start_time))
@@ -630,7 +635,7 @@ if __name__ == '__main__':
 
         def insert_d2():
             session_id_1_in_same_thread = None
-            with db.get_flask_session() as session:
+            with db.get_db_session() as session:
                 session_id_1_in_same_thread = id(session)
                 # print("session: " + str(id(session)))
                 # print("init session: " + str(int(time.time()) - start_time))
@@ -653,7 +658,6 @@ if __name__ == '__main__':
                 thread.join()
 
         time.sleep(30)
-
 
 
 

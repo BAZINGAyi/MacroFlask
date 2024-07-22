@@ -1,1 +1,4 @@
 flask==2.3.3
+SQLAlchemy==2.0.31
+PyMySQL==1.1.1
+pytest==8.2.0
