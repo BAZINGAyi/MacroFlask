@@ -27,119 +27,6 @@ def show_memory_info(hint):
     memory = info.uss / 1024. / 1024
     print('{} memory used: {} MB'.format(hint, memory))
 
-from sqlalchemy.orm import sessionmaker, scoped_session
-
-
-# class LightSqlAlchemyOld:
-#     def __init__(self, flask_app):
-#         # self.db_uri = db_uri
-#         # self.engine = create_engine(db_uri)
-#         # self.session = sessionmaker(bind=self.engine)
-#
-#         session_options = {}
-#         self.session = self._make_scoped_session(session_options)
-#
-#     def _make_scoped_session(
-#         self, options: dict[str, typing.Any]
-#     ) -> raw_sa_orm.scoped_session[Session]:
-#         """Create a :class:`sqlalchemy.orm.scoping.scoped_session` around the factory
-#         from :meth:`_make_session_factory`. The result is available as :attr:`session`.
-#
-#         The scope function can be customized using the ``scopefunc`` key in the
-#         ``session_options`` parameter to the extension. By default it uses the current
-#         thread or greenlet id.
-#
-#         This method is used for internal setup. Its signature may change at any time.
-#
-#         :meta private:
-#
-#         :param options: The ``session_options`` parameter from ``__init__``. Keyword
-#             arguments passed to the session factory. A ``scopefunc`` key is popped.
-#
-#         .. versionchanged:: 3.0
-#             The session is scoped to the current app context.
-#
-#         .. versionchanged:: 3.0
-#             Renamed from ``create_scoped_session``, this method is internal.
-#         """
-#         # scope = options.pop("scopefunc", _app_ctx_id)
-#         factory = self._make_session_factory(options)
-#         return raw_sa_orm.scoped_session(factory)
-#
-#     def _make_session_factory(
-#         self, options: dict[str, typing.Any]
-#     ) -> raw_sa_orm.sessionmaker[Session]:
-#         """Create the SQLAlchemy :class:`sqlalchemy.orm.sessionmaker` used by
-#         :meth:`_make_scoped_session`.
-#
-#         To customize, pass the ``session_options`` parameter to :class:`SQLAlchemy`. To
-#         customize the session class, subclass :class:`.Session` and pass it as the
-#         ``class_`` key.
-#
-#         This method is used for internal setup. Its signature may change at any time.
-#
-#         :meta private:
-#
-#         :param options: The ``session_options`` parameter from ``__init__``. Keyword
-#             arguments passed to the session factory.
-#
-#         .. versionchanged:: 3.0
-#             The session class can be customized.
-#
-#         .. versionchanged:: 3.0
-#             Renamed from ``create_session``, this method is internal.
-#         """
-#         # options.setdefault("class_", Session)
-#         # options.setdefault("query_cls", self.Query)
-#         return raw_sa_orm.sessionmaker(db=self, **options)
-#
-#     def _teardown_session(self, exc: BaseException | None) -> None:
-#         """Remove the current session at the end of the request.
-#
-#         :meta private:
-#
-#         .. versionadded:: 3.0
-#         """
-#         self.session.remove()
-#
-#     def _make_engine(
-#         self, bind_key: str | None, options: dict[str, typing.Any], app
-#     ) -> raw_sa.engine.Engine:
-#         """Create the :class:`sqlalchemy.engine.Engine` for the given bind key and app.
-#
-#         To customize, use :data:`.SQLALCHEMY_ENGINE_OPTIONS` or
-#         :data:`.SQLALCHEMY_BINDS` config. Pass ``engine_options`` to :class:`SQLAlchemy`
-#         to set defaults for all engines.
-#
-#         This method is used for internal setup. Its signature may change at any time.
-#
-#         :meta private:
-#
-#         :param bind_key: The name of the engine being created.
-#         :param options: Arguments passed to the engine.
-#         :param app: The application that the engine configuration belongs to.
-#
-#         .. versionchanged:: 3.0
-#             Renamed from ``create_engine``, this method is internal.
-#         """
-#         return raw_sa.engine_from_config(options, prefix="")
-#
-#     def return_scoped_session(self):
-#         url = "sqlite:///:memory:"
-#         engine = raw_sa.create_engine(url)
-#         SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-#         Session = scoped_session(SessionLocal)
-#         return Session
-
-
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import sessionmaker, scoped_session
-
-
-from flask import Flask
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, scoped_session
-from contextlib import contextmanager
 
 from flask import Flask
 from sqlalchemy import create_engine
@@ -148,7 +35,7 @@ from contextlib import contextmanager
 
 
 class LightSqlAlchemy:
-    def __init__(self, app=None, db_url=None, **kwargs):
+    def __init__(self, db_config: dict, app=None, **kwargs):
         """
         Initialize the LightSqlAlchemy object.
 
@@ -159,13 +46,27 @@ class LightSqlAlchemy:
         self.session_local = None
         self.session = None
 
+        # bind base class to the engine
+        self.bind_model_engines = {}
+        self.bind_key_models = {}
+
+        # check db config parameter
+        if isinstance(db_config, dict) and db_config:
+            for key, db_obj in db_config.items():
+                # register key model
+                if not db_obj.get("model_class"):
+                    raise ValueError(f"model_class is required")
+                self._register_model(key, db_obj["model_class"])
+
+                # check db url
+                if not db_obj.get("url"):
+                    raise ValueError(f"url is required with key: {key}")
+
         if app:
             self._init_app(app)
 
         else:
-            if not db_url:
-                raise ValueError("Database URI must be provided for non-Flask environments.")
-            self._init_non_flask_env(db_url, **kwargs)
+            self._init_non_flask_env(db_config, **kwargs)
 
     def _init_app(self, app: Flask):
         """
@@ -188,13 +89,37 @@ class LightSqlAlchemy:
         """
         self.close_session()
 
-    def _init_non_flask_env(self, url: str, **kwargs):
+    def _register_model(self, bind, model_class):
+        """
+        Register a model class for a specific bind key.
+
+        :param bind: The bind key for the database.
+        :param model_class: The model class to register.
+        """
+        self.bind_key_models[bind] = model_class
+
+    def _configure_session_binds(self, base_class, engine):
+        """
+        Configure the session binds to automatically use the correct engine based on the base class.
+        """
+        if self.session:
+            self.bind_model_engines[base_class] = engine
+            self.session.configure(binds=self.bind_model_engines)
+
+    def _init_non_flask_env(self, db_config: dict, **kwargs):
         """
         Initialize for non-Flask environments with database engine and session configuration.
 
         :param url: Database connection URI.
         :param kwargs: Additional keyword arguments for creating the engine.
         """
+        for bind_key, db_obj in db_config.items():
+            if bind_key not in self.bind_key_models:
+                raise ValueError(f"No model class registered for bind: {bind_key}")
+            base_class = self.bind_key_models[bind_key]
+            self._create_engine_and_session(**db_obj, base_class=base_class, **kwargs)
+
+    def _create_engine_and_session(self, url, base_class, **kwargs):
         url = raw_sa.engine.make_url(url)
         if not url.drivername.startswith("mysql"):
             raise ValueError(
@@ -208,13 +133,13 @@ class LightSqlAlchemy:
             # increase the number of connections that can be created when the pool is empty
             "max_overflow": 100,
             # number of seconds to wait before giving up on getting a connection from the pool
-            "pool_timeout": 30,  # 增加连接超时时间（秒）
+            "pool_timeout": 30,
             # reset the timeout of idle connections in the connection pool (seconds)
-            "pool_recycle": 2 * 60 * 60,  # 重置连接池中的空闲连接的超时时间（秒）
+            "pool_recycle": 2 * 60 * 60,
         }
         if "engine_options" in kwargs:
-            options.update(kwargs.pop("engine_options"))
-        self.engine = create_engine(url, **engine_options)
+            engine_options.update(kwargs.pop("engine_options"))
+        engine = create_engine(url, **engine_options)
 
         # init session configuration
         session_options = {
@@ -224,17 +149,23 @@ class LightSqlAlchemy:
         }
         if "session_options" in kwargs:
             session_options.update(kwargs.pop("session_options"))
-        self.session_local = sessionmaker(bind=self.engine, **session_options)
-        self.session = scoped_session(self.session_local)
+        session_local = sessionmaker(bind=self.engine, **session_options)
+        self.session = scoped_session(session_local)
+
+        # Configure the session binds
+        self._configure_session_binds(base_class, engine)
 
     def get_session(self):
         """
         Retrieve the current thread's session instance.
 
         :return: The session instance for the current thread.
-        """
-        return self.session()
 
+        :exception: ValueError if the session has not been initialized.
+        """
+        if not self.session:
+            raise ValueError("Session has not been initialized.")
+        return self.session()
     @contextmanager
     def get_flask_session(self):
         """
@@ -285,19 +216,15 @@ class LightSqlAlchemy:
 
         :return: None
         """
-        self.session.remove()
+        if self.session:
+            self.session.remove()
 
 
-if __name__ == '__main__':
+def check_concurrent_with_one_db():
     # Q1 100 并发，没有内存泄露的问题,
     # SELECT * FROM information_schema.PROCESSLIST where ID NOT IN (6472, 8759, 8841);
+    # SHOW VARIABLES LIKE 'max_connections';
     # 测试 memory 占用
-
-    # Q2 支持多数据库
-
-    # Q3 了解 weakref
-
-    # Q4 增加监听器，用于 debug
 
     from sqlalchemy import Integer, String, Column
     from sqlalchemy.orm import Mapped, sessionmaker
@@ -349,6 +276,171 @@ if __name__ == '__main__':
         print(sys.getrefcount(lsa))
         print("done")
         time.sleep(30)
+
+def use_multi_dbs():
+    # Q2 支持多数据库, support multiple databases, 测试完成
+    from sqlalchemy import Integer, String, Column
+    from sqlalchemy.orm import Mapped, sessionmaker
+    from sqlalchemy.orm import DeclarativeBase
+
+    class Base(DeclarativeBase):
+        pass
+
+    class Base2(DeclarativeBase):
+        pass
+
+    class User(Base):
+        __tablename__ = "user"
+
+        id: Mapped[int] = Column(Integer, primary_key=True, autoincrement=True)
+        username: Mapped[str] = Column(String(255), nullable=False)
+        email: Mapped[str] = Column(String(255), nullable=False)
+
+    class User2(Base2):
+        __tablename__ = "user"
+
+        id: Mapped[int] = Column(Integer, primary_key=True, autoincrement=True)
+        username: Mapped[str] = Column(String(255), nullable=False)
+        email: Mapped[str] = Column(String(255), nullable=False)
+
+    # 定义数据库连接 URI
+    db_config_dict = {
+        'database1': {
+            'url': get_config().DATABASE_URI,
+            "model_class": Base,
+            "engine_options": {},
+            "session_options": {}
+        },
+        'database2': {
+            'url': get_config().DATABASE_URI_1,
+            "model_class": Base2,
+            "engine_options": {},
+            "session_options": {}
+        }
+    }
+
+    start_time = int(time.time())
+    db = LightSqlAlchemy(db_config=db_config_dict)
+
+    # print("init engine: " + str(int(time.time()) - start_time))
+    #
+    # with db.get_non_flask_session() as session:
+    #     print("init session: " + str(int(time.time()) - start_time))
+    #     for i in range(30):
+    #         new_user = User(username="d1", email="d1")
+    #         session.add(new_user)
+    #
+    # with db.get_non_flask_session() as session:
+    #     new_user = User2(username="d2", email="d2")
+    #     session.add(new_user)
+    #
+    # print("done: " + str(int(time.time()) - start_time))
+
+    def insert_d1():
+        start_time = int(time.time())
+        with db.get_non_flask_session() as session:
+            users = []
+            for i in range(1):
+                new_user = User(username="d1", email="d1")
+                # session.add(new_user)
+                # change to bulk
+                users.append(new_user)
+            session.bulk_save_objects(users)
+        print("insert_d1: " + str(int(time.time()) - start_time))
+
+    def insert_d2():
+        start_time = int(time.time())
+        with db.get_non_flask_session() as session:
+            users = []
+            for i in range(1):
+                new_user = User2(username="d2", email="d2")
+                # session.add(new_user)
+                users.append(new_user)
+            session.bulk_save_objects(users)
+        print("insert_d2: " + str(int(time.time()) - start_time))
+
+    while True:
+        show_memory_info("Current")
+
+        threads = [threading.Thread(target=insert_d1) for _ in range(100)]
+        for thread in threads:
+            thread.start()
+        threads1 = [threading.Thread(target=insert_d2) for _ in range(40)]
+        for thread in threads1:
+            thread.start()
+
+        # wait for all threads to finish
+        for thread in threads:
+            thread.join()
+        for thread in threads1:
+            thread.join()
+
+        time.sleep(30)
+
+
+if __name__ == '__main__':
+
+    # Q3 了解 weakref
+
+    # Q4 增加监听器，用于 debug
+
+    from sqlalchemy import Integer, String, Column
+    from sqlalchemy.orm import Mapped, sessionmaker
+    from sqlalchemy.orm import DeclarativeBase
+
+    class Base(DeclarativeBase):
+        pass
+
+    class Base2(DeclarativeBase):
+        pass
+
+    class User(Base):
+        __tablename__ = "user"
+
+        id: Mapped[int] = Column(Integer, primary_key=True, autoincrement=True)
+        username: Mapped[str] = Column(String(255), nullable=False)
+        email: Mapped[str] = Column(String(255), nullable=False)
+
+    class User2(Base2):
+        __tablename__ = "user"
+
+        id: Mapped[int] = Column(Integer, primary_key=True, autoincrement=True)
+        username: Mapped[str] = Column(String(255), nullable=False)
+        email: Mapped[str] = Column(String(255), nullable=False)
+
+    # 定义数据库连接 URI
+    db_config_dict = {
+        'database1': {
+            'url': get_config().DATABASE_URI,
+            "model_class": Base,
+            "engine_options": {},
+            "session_options": {}
+        },
+        'database2': {
+            'url': get_config().DATABASE_URI_1,
+            "model_class": Base2,
+            "engine_options": {},
+            "session_options": {}
+        }
+    }
+
+    start_time = int(time.time())
+    db = LightSqlAlchemy(db_config=db_config_dict)
+
+    print("init engine: " + str(int(time.time()) - start_time))
+
+    with db.get_non_flask_session() as session:
+        print("init session: " + str(int(time.time()) - start_time))
+        for i in range(30):
+            new_user = User(username="d1", email="d1")
+            session.add(new_user)
+
+    with db.get_non_flask_session() as session:
+        new_user = User2(username="d2", email="d2")
+        session.add(new_user)
+
+    print("done: " + str(int(time.time()) - start_time))
+
 
 
 
