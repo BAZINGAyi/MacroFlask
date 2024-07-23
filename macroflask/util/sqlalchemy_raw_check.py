@@ -8,6 +8,8 @@ from sqlalchemy import Integer, String, Column, create_engine
 from sqlalchemy.orm import Mapped, sessionmaker, Session
 from sqlalchemy.orm import DeclarativeBase
 
+from config import get_config
+
 
 def show_memory_info(hint):
     pid = os.getpid()
@@ -16,6 +18,7 @@ def show_memory_info(hint):
     info = p.memory_full_info()
     memory = info.uss / 1024. / 1024
     print('{} memory used: {} MB'.format(hint, memory))
+    return memory
 
 
 class Base(DeclarativeBase):
@@ -31,11 +34,23 @@ class User(Base):
 
 
 options = {
-    "pool_size": 5,  # 增大连接池大小
-    "max_overflow": 1,  # 增大溢出连接数
-    "pool_timeout": 1,  # 增加连接超时时间（秒）
-    "pool_recycle": 5,  # 重置连接池中的空闲连接的超时时间（秒）
-}
+            # increase the number of connections in the pool
+            "pool_size": 50,
+            # increase the number of connections that can be created when the pool is empty
+            "max_overflow": 100,
+            # number of seconds to wait before giving up on getting a connection from the pool
+            "pool_timeout": 30,
+            # reset the timeout of idle connections in the connection pool (seconds)
+            "pool_recycle": 2 * 60 * 60,
+            # isolation level for the engine
+            "isolation_level": "READ COMMITTED",
+            # enable the echo mode for debugging
+            "echo": False,
+            # enable the echo mode for the connection pool, input 'debug' if you want to debug
+            "echo_pool": False,
+            # enable the pool pre-ping to test connections before using them
+            # "pool_pre_ping": False,
+        }
 
 
 def check_insert_performance():
@@ -53,13 +68,14 @@ def check_insert_performance():
 
 def check_memory_leak():
     def worker():
-        engine = create_engine(url="mysql+pymysql://root:MyNewPass1!@10.124.44.192:3306/ethan_db", **options)
         with Session(engine) as session:
             # print(id(session))
-            users = session.query(User).all()
-            for user in users:
-                # print(user.username)
-                pass
+            # users = session.query(User).all()
+            # for user in users:
+            #     # print(user.username)
+            #     pass
+            user = session.query(User).where().first()
+            username = user.username
 
         # with Session(engine) as session:
         #     # print(id(session))
@@ -68,17 +84,30 @@ def check_memory_leak():
         #         # print(user.username)
         #         pass
 
-        while True:
-            show_memory_info("Current")
+    engine = create_engine(url=get_config().DATABASE_URI, **options)
+    start_time = int(time.time())
+    end_time = start_time + 60 * 5
+    current_time = start_time
+    memory_statistic = []
+    while current_time < end_time:
+        threads = [threading.Thread(target=worker) for _ in range(50)]
+        for thread in threads:
+            thread.start()
 
-            threads = [threading.Thread(target=worker) for _ in range(10)]
-            for thread in threads:
-                thread.start()
+        # wait for all threads to finish
+        for thread in threads:
+            thread.join()
 
-            # wait for all threads to finish
-            for thread in threads:
-                thread.join()
+        print(sys.getrefcount(engine))
+        print("done")
+        time.sleep(30)
+        current_time = int(time.time())
+        memory_statistic.append(show_memory_info("Current"))
+    print(memory_statistic)
 
-            print(sys.getrefcount(engine))
-            print("done")
-            time.sleep(30)
+
+if __name__ == '__main__':
+    show_memory_info("Start")
+    check_memory_leak()
+    show_memory_info("End")
+    # check_inse    rt_performance()
