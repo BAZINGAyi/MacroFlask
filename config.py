@@ -8,6 +8,61 @@ class Config:
     SECRET_KEY = 'default_secret_key'
     DATABASE_URI = 'sqlite:///app.db'
 
+    # logging configuration
+    LOGGING = {
+        'version': 1,
+        'disable_existing_loggers': False,
+        'formatters': {
+            'standard': {
+                'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            },
+        },
+        'handlers': {
+            'console': {
+                'level': 'DEBUG',
+                'class': 'logging.StreamHandler',
+                'formatter': 'standard',
+            },
+            # Rotating by file size
+            # 'app_file': {
+            #     'level': 'DEBUG',
+            #     'class': 'logging.handlers.RotatingFileHandler',
+            #     'formatter': 'standard',
+            #     'filename': 'app.log',
+            #     'maxBytes': 10485760 / 2,  # 5 MB
+            #     'backupCount': 5,
+            # },
+            'app_file': {
+                'level': 'DEBUG',
+                'class': 'logging.handlers.TimedRotatingFileHandler',
+                'formatter': 'standard',
+                'filename': 'app.log',
+                'when': 'midnight',
+                'interval': 1,
+                'backupCount': 5,
+            },
+            'system_file': {
+                'level': 'DEBUG',
+                'class': 'logging.handlers.TimedRotatingFileHandler',
+                'formatter': 'standard',
+                'filename': 'sys.log',
+                'when': 'midnight',
+                'interval': 1,
+                'backupCount': 5,
+            },
+        },
+        'loggers': {
+            'app': {
+                'level': 'DEBUG',
+                'propagate': False
+            },
+            'sys': {
+                'level': 'DEBUG',
+                'propagate': False
+            },
+        }
+    }
+
 
 class DevelopmentConfig(Config):
     DEBUG = True
