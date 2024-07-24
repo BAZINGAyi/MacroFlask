@@ -1,14 +1,10 @@
-import multiprocessing
 import os
 
 from flask import Flask
 from config import get_config
 from macroflask.models import Base, db
 from macroflask.api import api_bp
-from macroflask.util.light_logging import MacroFlaskLogger
-
-app_logger = None
-sys_logger = None
+from macroflask.service.global_service import logging_manager, sys_logger
 
 
 def create_app():
@@ -19,10 +15,7 @@ def create_app():
 
     # init logging
     log_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs")
-    logging_manager = MacroFlaskLogger(get_config().LOGGING, app, path=log_dir)
-    global app_logger, sys_logger
-    app_logger = logging_manager.get_logger("app")
-    sys_logger = logging_manager.get_logger("sys")
+    logging_manager.init_flask_logger(get_config().LOGGING, app, path=log_dir)
 
     # init model
     db_config_dict = {
