@@ -14,4 +14,4 @@ class Base(DeclarativeBase):
     pass
 
 
-db = LightSqlAlchemy(is_flask=True)
+db = LightSqlAlchemy(is_flask=True, open_logging=True)
