@@ -10,7 +10,7 @@ from contextlib import contextmanager
 
 
 class LightSqlAlchemy:
-    def __init__(self, is_flask=False, db_config: dict = None, open_logging=False, **kwargs):
+    def __init__(self, is_flask=False, db_config: dict = None, open_logging=False, logger=None, **kwargs):
         """
         Initialize the LightSqlAlchemy object.
 
@@ -21,6 +21,7 @@ class LightSqlAlchemy:
         # set logging
         self.is_flask = is_flask
         self.set_sqlalchemy_logging(open_logging)
+        self.set_logger(logger)
 
         self.engine = None
         self.session_local = None
@@ -126,7 +127,7 @@ class LightSqlAlchemy:
             engine_options.update(kwargs.pop("engine_options"))
         engine = create_engine(url, **engine_options)
         with engine.connect():
-            print("Connected to database: " + str(url))
+            self.logger.info("Connected to database: " + str(url))
 
         # init session configuration
         session_options = {
@@ -210,6 +211,11 @@ class LightSqlAlchemy:
             logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
 
     def validate_db_config(self, db_config: dict):
+        """
+        Validate the database configuration dictionary.
+        :param db_config: The database configuration dictionary.
+        :return:
+        """
         if not isinstance(db_config, dict) or not db_config:
             raise ValueError("db_config must be a non-empty dictionary.")
 
@@ -224,3 +230,6 @@ class LightSqlAlchemy:
                 # check db url
                 if not db_obj.get("url"):
                     raise ValueError(f"url is required with key: {key}")
+
+    def set_logger(self, logger):
+        self.logger = logger
