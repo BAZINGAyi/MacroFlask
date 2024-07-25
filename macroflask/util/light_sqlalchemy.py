@@ -127,7 +127,8 @@ class LightSqlAlchemy:
             engine_options.update(kwargs.pop("engine_options"))
         engine = create_engine(url, **engine_options)
         with engine.connect():
-            self.logger.info("Connected to database: " + str(url))
+            if self.logger:
+                self.logger.info("Connected to database: " + str(url))
 
         # init session configuration
         session_options = {
