@@ -1,4 +1,6 @@
 import os
+import time
+
 import psutil
 import tracemalloc
 
@@ -11,6 +13,21 @@ def show_memory_info(hint):
     memory = info.uss / 1024. / 1024
     print('{} memory used: {} MB'.format(hint, memory))
     return memory
+
+
+def print_run_time(func):
+    """
+    Print the run time of the function
+
+    :param func: function object
+    :return:
+    """
+    def wrapper(*args, **kw):
+        local_time = time.time()
+        result = func(*args, **kw)
+        print('current Function [%s] run time is %.2f' % (func.__name__, time.time() - local_time))
+        return result
+    return wrapper
 
 
 class MemoryTopUtil:
