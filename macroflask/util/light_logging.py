@@ -36,7 +36,7 @@ class CustomizeQueueListener(QueueListener):
 
 
 class MacroFlaskLogger:
-    def __init__(self, config, app=None, path=None):
+    def __init__(self, config=None, app=None, path=None):
         """
         Initialize the MacroFlaskLogger object.
 
@@ -48,14 +48,20 @@ class MacroFlaskLogger:
         self.log_queue = Queue(-1)  # -1 means unlimited size
         self.logger_config = config
         self.path = path
-        self.setup_logging()
+        if config:
+            self._setup_logging()
 
-    def setup_logging(self):
+    def init_flask_logger(self, config, app, path):
+        self.logger_config = config
+        self.path = path
+        self._setup_logging()
+
+    def _setup_logging(self):
         logging.config.dictConfig(self.logger_config)
-        self.queue_listener = CustomizeQueueListener(self.log_queue, *self.get_handlers())
+        self.queue_listener = CustomizeQueueListener(self.log_queue, *self._get_handlers())
         self.queue_listener.start()
 
-    def get_handlers(self):
+    def _get_handlers(self):
         handlers = []
         for handler_name, handler_config in self.logger_config['handlers'].items():
             handler_class = self._get_handler_class(handler_config['class'])
@@ -124,6 +130,19 @@ class MacroFlaskLogger:
             raise ValueError(f"Unsupported handler class: {handler_class}")
 
     def get_logger(self, name):
+        """
+        Return a logger with the specified name.
+
+        Note:
+        This method should be called after init_flask_logger() and only call this method once.
+
+        :param name:  The name of the logger.
+
+        :return:  The logger instance.
+        """
+        if not self.logger_config:
+            raise ValueError("Logger configuration is not set. Please call init_flask_logger() first.")
+
         logger = logging.getLogger(name)
         logger.setLevel(logging.DEBUG)
         logger.addHandler(QueueHandler(self.log_queue))
