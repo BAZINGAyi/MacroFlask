@@ -138,7 +138,7 @@ class LightSqlAlchemy:
         }
         if "session_options" in kwargs:
             session_options.update(kwargs.pop("session_options"))
-        session_local = sessionmaker(bind=self.engine, **session_options)
+        session_local = sessionmaker(**session_options)
         self.session = scoped_session(session_local)
 
         # Configure the session binds
