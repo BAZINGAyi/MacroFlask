@@ -9,8 +9,9 @@ from macroflask.util.light_logging import MacroFlaskLogger
 logging_manager = MacroFlaskLogger()
 _app_logger = None
 _sys_logger = None
-# If we don't use LocalProxy, the app logger or sys logger will be initialized before the logging_manager is initialized,
-# but logger configuration is not loaded yet.
+# If we don't use LocalProxy,
+#   the app logger or sys logger will be initialized before the logging_manager is initialized,
+#   but logger configuration is not loaded yet.
 app_logger: Union[LocalProxy, logging.Logger] = LocalProxy(lambda: _get_app_logger())
 sys_logger: Union[LocalProxy, logging.Logger] = LocalProxy(lambda: _get_sys_logger())
 
