@@ -5,8 +5,8 @@ from . import api_bp
 from macroflask.models import db
 from macroflask.system.user_model import User, PermissionsConstant, RoleModulePermission, \
     ModuleConstant
-from ..service.global_service import app_logger
 from ..system import permission_required
+from ..system.extensions import app_logger
 
 
 @api_bp.route('/user/')

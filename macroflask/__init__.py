@@ -3,9 +3,8 @@ from flask import Flask
 from config import get_config
 from macroflask.models import Base, db
 from macroflask.api import api_bp
-from macroflask.service.global_service import logging_manager, sys_logger
 from macroflask.system import ResponseHandler
-from macroflask.system.extensions import jwt_manager
+from macroflask.system.extensions import jwt_manager, logging_manager, sys_logger
 from macroflask.system.sys_api import system_api_bp
 
 

@@ -5,7 +5,7 @@ from flask import jsonify, app
 from flask_jwt_extended import get_jwt_identity
 
 from macroflask import db
-from macroflask.system.extensions import jwt_manager
+from macroflask.system.extensions import jwt_manager, app_logger
 from macroflask.system.user_model import RoleModulePermission, User
 
 
