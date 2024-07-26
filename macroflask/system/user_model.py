@@ -48,7 +48,7 @@ class Role(Base, CommonModelMixin):
 class ModuleConstant:
     USER = 1
     ROLE = 2
-    PERMISSION = 'permission'
+    PERMISSION = 3
 
 
 class Module(Base, CommonModelMixin):
