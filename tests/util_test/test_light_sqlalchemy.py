@@ -29,7 +29,7 @@ class TestLightSQLAlchemy:
         print('{} memory used: {} MB'.format(hint, memory))
 
     def test_light_memory_lose_in_non_flask_env(self):
-        from macroflask.models.user_model import User, Base
+        from macroflask.system.user_model import User, Base
 
         def worker():
             with lsa.get_db_session() as session:
@@ -107,7 +107,7 @@ class TestLightSQLAlchemy:
         # 测试 memory 占用
 
         from sqlalchemy import Integer, String, Column
-        from sqlalchemy.orm import Mapped, sessionmaker
+        from sqlalchemy.orm import Mapped
         from sqlalchemy.orm import DeclarativeBase
 
         class Base(DeclarativeBase):
@@ -172,7 +172,7 @@ class TestLightSQLAlchemy:
     def use_multi_dbs(self):
         # Q2 支持多数据库, support multiple databases, 测试完成
         from sqlalchemy import Integer, String, Column
-        from sqlalchemy.orm import Mapped, sessionmaker
+        from sqlalchemy.orm import Mapped
         from sqlalchemy.orm import DeclarativeBase
 
         class Base(DeclarativeBase):
@@ -278,7 +278,7 @@ class TestLightSQLAlchemy:
 
     def flask_env_run(self):
         from sqlalchemy import Integer, String, Column
-        from sqlalchemy.orm import Mapped, sessionmaker
+        from sqlalchemy.orm import Mapped
         from sqlalchemy.orm import DeclarativeBase
 
         class Base(DeclarativeBase):
@@ -349,7 +349,7 @@ class TestLightSQLAlchemy:
 
     def flask_env_run_memory_lose(self):
         from sqlalchemy import Integer, String, Column
-        from sqlalchemy.orm import Mapped, sessionmaker
+        from sqlalchemy.orm import Mapped
         from sqlalchemy.orm import DeclarativeBase
 
         class Base(DeclarativeBase):
