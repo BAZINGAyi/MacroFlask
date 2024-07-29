@@ -4,7 +4,7 @@ from flask import Blueprint, request
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity, get_jwt
 
 from macroflask import db
-from macroflask.system import permission_required, ResponseHandler
+from macroflask.system.rest_mgmt import permission_required, ResponseHandler
 from macroflask.system.user_model import User, PermissionsConstant
 
 system_api_bp = Blueprint('system', __name__)

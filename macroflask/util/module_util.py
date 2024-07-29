@@ -48,7 +48,6 @@ def import_module_by_path_and_suffix_name(path: str, suffix_name: str):
     common_path = os.path.commonpath([target_file_path, current_file_path])
     latest_dir_name_in_common_path = common_path.split(os.sep)[-1]
 
-    # 遍历所有文件
     for file in target_files:
         # Check if the file name ends with the provided suffix name
         if file.endswith(suffix_name + '.py'):
