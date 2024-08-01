@@ -17,6 +17,14 @@ class User(Base, UserMixin, CommonModelMixin):
     locale = Column(String(32))
     role_id = Column(Integer, ForeignKey("sys_role.id"), nullable=False)
 
+    @property
+    def password(self):
+        return self.password_hash
+
+    @password.setter
+    def password(self, password):
+        self.set_password(password)
+
     def set_password(self, password):
         """Generate a hash for the given password and set it."""
         self.password_hash = generate_password_hash(password)

@@ -9,10 +9,11 @@ from macroflask.system.user_model import User, PermissionsConstant, RoleModulePe
     ModuleConstant
 from ..system.rest_mgmt import permission_required
 from ..system.extensions import app_logger
+from ..util.dynamic_api_manager import DynamicBlueprintManager
 from ..util.query_processor import QueryRequest, QueryProcessor
 
 
-@api_bp.route('/user/')
+@api_bp.route('/user1/')
 @jwt_required()
 @permission_required(module_id=ModuleConstant.USER, permission_bitmask=PermissionsConstant.READ)
 def show():
@@ -33,3 +34,17 @@ def show():
         return "Hello, World!" + str(12222)
     except TemplateNotFound:
         abort(404)
+
+# Register dynamic API
+
+
+user_config = {
+    'module_id': ModuleConstant.USER,
+    'create': {'permission_bitmask': PermissionsConstant.READ},
+    'read_all': {'permission_bitmask': PermissionsConstant.READ},
+    'read_one': {'permission_bitmask': PermissionsConstant.READ},
+    'update': {'permission_bitmask': PermissionsConstant.UPDATE},
+    'delete': {'permission_bitmask': PermissionsConstant.DELETE},
+}
+
+DynamicBlueprintManager(api_bp, User, user_config)

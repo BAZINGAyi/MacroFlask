@@ -10,7 +10,7 @@ from macroflask.system.user_model import User, PermissionsConstant
 system_api_bp = Blueprint('system', __name__)
 
 
-@system_api_bp.route("/token", methods=["POST"])
+@system_api_bp.route("/token/", methods=["POST"])
 def login():
     username = request.json.get("username", None)
     password = request.json.get("password", None)

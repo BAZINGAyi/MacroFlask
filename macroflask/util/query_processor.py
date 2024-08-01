@@ -2,9 +2,6 @@ from typing import List, Dict, Union, Optional
 
 from sqlalchemy.orm import load_only, joinedload, sessionmaker
 
-from macroflask import db
-from macroflask.system import User
-
 from sqlalchemy.orm import Query, load_only, joinedload
 from sqlalchemy import or_, and_, text, func
 
@@ -204,12 +201,6 @@ class QueryProcessor:
 
         return operator(*conditions) if conditions else True
 
-    # def apply_field_selection(self):
-    #     """ Select specific fields to be returned. """
-    #     need_fields = self.request_body.get_need_fields()
-    #     if need_fields:
-    #         need_fields = [getattr(self.model, field) for field in need_fields]
-    #         self.query = self.query.options(load_only(*need_fields))
     def apply_field_selection(self):
         """ Select specific fields to be returned, supporting group by with aggregate functions. """
         need_fields = self.request_body.get_need_fields()
@@ -256,37 +247,15 @@ class QueryProcessor:
         self.apply_pagination()
         self.apply_field_selection()
         # self.apply_relations()
+        datas = self.query.all()
 
-        return self.query.all()
+        new_result = []
+        if self.request_body.get_need_fields():
+            for data in datas:
+                new_data = {}
+                for index, field in enumerate(self.request_body.get_need_fields()):
+                    new_data[field] = data[index]
+                new_result.append(new_data)
+            datas = new_result
 
-
-if __name__ == '__main__':
-    body = {
-        "pagination": {
-            "page": 1,
-            "page_count": 10
-        },
-        "sorting": {
-            "sort_by": "username",
-            "order": "asc"
-        },
-        "filters": {
-            "and": [
-                {"field": "email", "op": "like", "value": 18},
-                {
-                    "or": [
-                        {"field": "username", "op": "like", "value": "John"},
-                        {"field": "username", "op": "like", "value": "Jane"}
-                    ]
-                },
-                {"field": "id", "op": "in", "value": [1, 2, 3]}
-            ]
-        },
-        "need_fields": ["id", "username", "email"],
-    }
-
-    query_request = QueryRequest(body)
-
-    # Test the QueryProcessor
-    session = sessionmaker()
-    process = QueryProcessor(User, session, None, query_request).process()
+        return datas

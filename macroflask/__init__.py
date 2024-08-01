@@ -1,4 +1,6 @@
 import os
+import traceback
+
 from flask import Flask
 from config import get_config
 from macroflask.models import Base, db
@@ -14,14 +16,11 @@ def create_app():
     print(get_config())
     app.config.from_object(get_config())
 
-    # init flask internal error response
-    @app.errorhandler(500)
-    def internal_error(error):
-        return ResponseHandler.error("Internal server error", status_code=500)
-
-    @app.errorhandler(404)
-    def not_found_error(error):
-        return ResponseHandler.error("Resource not found", status_code=404)
+    @app.errorhandler(Exception)
+    def handle_exception(error):
+        info = traceback.format_exc()
+        sys_logger.error(info)
+        return ResponseHandler.error("An unexpected error occurred", status_code=500)
 
     # init logging
     log_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs")
@@ -42,7 +41,7 @@ def create_app():
 
     # jwt config
     jwt_manager.init_app(app)
-    app.config['JWT_SECRET_KEY'] = 'ZZZZ'
+    app.config['JWT_SECRET_KEY'] = get_config().SECRET_KEY
 
     # init api
     app.register_blueprint(api_bp, url_prefix="/api/v1.0")
