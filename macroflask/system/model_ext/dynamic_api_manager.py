@@ -1,9 +1,7 @@
 from flask import request, jsonify, abort
 from functools import wraps
 from flask_jwt_extended import jwt_required
-from macroflask import db
 from macroflask.system.rest_mgmt import permission_required, ResponseHandler
-from macroflask.util.query_processor import QueryRequest, QueryProcessor
 
 
 class DynamicBlueprintManager:
@@ -62,10 +60,8 @@ class DynamicBlueprintManager:
     def _create(self):
         print(self._create.__name__)
         data = request.json
-        instance = self.model(**data)
-        with db.get_db_session() as session:
-            session.add(instance)
-        return ResponseHandler.success("success_create", data=instance.to_dict())
+        data = self.model.create(data)
+        return ResponseHandler.success("success_create", data=data)
 
     def _read_all(self):
         query_result = []
@@ -73,11 +69,7 @@ class DynamicBlueprintManager:
         msg = "success_access"
 
         try:
-            with db.get_db_session() as session:
-                body = request.json
-                query_request = QueryRequest(body)
-                query_processor = QueryProcessor(self.model, session, None, query_request)
-                query_result = query_processor.process()
+            query_result = self.model.read_all(request.json)
         except Exception as e:
             status = False
             msg = str(e)
@@ -88,29 +80,13 @@ class DynamicBlueprintManager:
 
     def _read_one(self, id):
         print(self._read_one.__name__)
-        with db.get_db_session() as session:
-            instance = session.query(self.model).get(id)
-            if instance is None:
-                return ResponseHandler.error("Not found")
-        return ResponseHandler.success("success_access", data=instance.to_dict())
+        data = self.model.read_one(id)
+        return ResponseHandler.success("success_access", data=data)
 
     def _update(self, id):
-        data = request.json
-        with db.get_db_session() as session:
-            instance = session.query(self.model).get(id)
-            if instance is None:
-                return ResponseHandler.error("Not found")
-
-            for key, value in data.items():
-                setattr(instance, key, value)
-            session.commit()
-        return ResponseHandler.success("success_update", data=instance.to_dict())
+        data = self.model.update(id, request.json)
+        return ResponseHandler.success("success_update", data=data)
 
     def _delete(self, id):
-        with db.get_db_session() as session:
-            instance = session.query(self.model).get(id)
-            if instance is None:
-                return ResponseHandler.error("Not found")
-            session.delete(instance)
-            session.commit()
-        return ResponseHandler.success("success_delete")
+        removed_data = self.model.delete(id)
+        return ResponseHandler.success("success_delete", data=removed_data)

@@ -5,12 +5,10 @@ from jinja2 import TemplateNotFound
 from tests.util_test.test_query_processor import normal_body, group_by_body
 from . import api_bp
 from macroflask.models import db
-from macroflask.system.user_model import User, PermissionsConstant, RoleModulePermission, \
-    ModuleConstant
+from macroflask.system.user_model import User, PermissionsConstant, ModuleConstant
 from ..system.rest_mgmt import permission_required
-from ..system.extensions import app_logger
-from ..util.dynamic_api_manager import DynamicBlueprintManager
-from ..util.query_processor import QueryRequest, QueryProcessor
+from macroflask.system.model_ext.dynamic_api_manager import DynamicBlueprintManager
+from macroflask.system.model_ext.query_processor import QueryRequest, QueryProcessor
 
 
 @api_bp.route('/user1/')
