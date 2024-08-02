@@ -1,4 +1,5 @@
 # check role has permission
+import json
 from functools import wraps
 from flask import jsonify
 from flask_jwt_extended import get_jwt_identity
@@ -56,3 +57,17 @@ class ResponseHandler:
             "message": message
         }
         return jsonify(response), status_code
+
+    @staticmethod
+    def convert_error_msg(error):
+        error_msg = "Internal Server Error"
+        if isinstance(error, ValueError):
+            msgs = json.loads(error.json())
+            if isinstance(msgs, list):
+                for msg in msgs:
+                    if 'url' in msg:
+                        del msg['url']
+            error_msg = msgs
+        else:
+            error_msg = str(error) if str(error) else error_msg
+        return error_msg

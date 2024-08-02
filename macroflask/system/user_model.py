@@ -4,10 +4,14 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 from macroflask.models import Base, CommonModelMixin
 from macroflask.system.model_ext.base_model import ModelExtMixin
+from macroflask.system.user_validate_schema import UserSchema
 
 
 class User(Base, UserMixin, CommonModelMixin, ModelExtMixin):
     __tablename__ = "sys_user"
+
+    create_schema = UserSchema
+    update_schema = UserSchema
 
     username = Column(String(50), unique=True, nullable=False)
     email = Column(String(100), unique=True, nullable=False)

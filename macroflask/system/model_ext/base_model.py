@@ -3,8 +3,15 @@ from macroflask.system.model_ext.query_processor import QueryRequest, QueryProce
 
 
 class ModelExtMixin:
+
+    create_schema = None
+    update_schema = None
+
     @classmethod
     def create(cls, data):
+        if cls.create_schema:
+            data = cls.create_schema(**data).dict(exclude_unset=True)
+
         is_replace_data, new_data = cls.before_create(data)
         if is_replace_data:
             data = new_data
@@ -17,7 +24,6 @@ class ModelExtMixin:
 
     @classmethod
     def read_all(cls, request_body):
-        query_result = []
         with db.get_db_session() as session:
             query_request = QueryRequest(request_body)
             query_processor = QueryProcessor(cls, session, None, query_request)
@@ -32,6 +38,9 @@ class ModelExtMixin:
 
     @classmethod
     def update(cls, id, data):
+        if cls.update_schema:
+            data = cls.update_schema(**data).dict(exclude_unset=True)
+
         validation_response = cls.before_update(id, data)
         if validation_response:
             return validation_response
