@@ -20,7 +20,8 @@ def create_app():
     def handle_exception(error):
         info = traceback.format_exc()
         sys_logger.error(info)
-        return ResponseHandler.error("An unexpected error occurred", status_code=500)
+        msg = ResponseHandler.convert_error_msg(error)
+        return ResponseHandler.error(msg, status_code=500)
 
     # init logging
     log_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs")
