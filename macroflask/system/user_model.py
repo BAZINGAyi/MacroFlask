@@ -3,9 +3,10 @@ from flask_login import current_user, UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from macroflask.models import Base, CommonModelMixin
+from macroflask.system.model_ext.base_model import ModelExtMixin
 
 
-class User(Base, UserMixin, CommonModelMixin):
+class User(Base, UserMixin, CommonModelMixin, ModelExtMixin):
     __tablename__ = "sys_user"
 
     username = Column(String(50), unique=True, nullable=False)
@@ -42,7 +43,7 @@ class User(Base, UserMixin, CommonModelMixin):
         }
 
 
-class Role(Base, CommonModelMixin):
+class Role(Base, CommonModelMixin, ModelExtMixin):
     __tablename__ = "sys_role"
 
     name = Column(String(50), unique=True, nullable=False)
@@ -59,7 +60,7 @@ class ModuleConstant:
     PERMISSION = 3
 
 
-class Module(Base, CommonModelMixin):
+class Module(Base, CommonModelMixin, ModelExtMixin):
     __tablename__ = "sys_module"
 
     name = Column(String(50), unique=True, nullable=False)
@@ -83,7 +84,7 @@ class PermissionsConstant:
 PERMISSIONS_INV = {v: k for k, v in PermissionsConstant.__dict__.items() if not k.startswith("__")}
 
 
-class Permission(Base, CommonModelMixin):
+class Permission(Base, CommonModelMixin, ModelExtMixin):
     __tablename__ = "sys_permission"
 
     name = Column(String(50), unique=True, nullable=False)
