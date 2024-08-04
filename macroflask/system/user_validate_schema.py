@@ -1,5 +1,5 @@
 import re
-from pydantic import BaseModel, constr, field_validator
+from pydantic import BaseModel, constr, field_validator, Field
 
 
 class UserSchema(BaseModel):
@@ -8,6 +8,8 @@ class UserSchema(BaseModel):
     password: constr(min_length=6)
     phone_number: str = None  # Optional field
     is_active: bool = True    # Default field
+    locale: str = Field(pattern=r'^[a-z]{2}-[A-Z]{2}$', default='en-US')
+    role_id: int
 
     @field_validator('email')
     def validate_email(cls, value):
@@ -17,3 +19,9 @@ class UserSchema(BaseModel):
         if not email_regex.match(value):
             raise ValueError('Invalid email address')
         return value
+
+
+class RoleSchema(BaseModel):
+    name: constr(min_length=4, max_length=25)
+    description: str = None
+    is_active: bool = True

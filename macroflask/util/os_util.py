@@ -1,5 +1,6 @@
 import os
 import time
+import uuid
 
 import psutil
 import tracemalloc
@@ -56,6 +57,12 @@ class MemoryTopUtil:
         for _ in range(100):
             leaky_objects.append(Leaky())
         return leaky_objects
+
+
+class UUIDUtil:
+    @staticmethod
+    def generate_uuid():
+        return str(uuid.uuid4())
 
 
 if __name__ == '__main__':
