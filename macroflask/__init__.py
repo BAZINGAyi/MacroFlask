@@ -4,16 +4,16 @@ import traceback
 from flask import Flask
 from config import get_config
 from macroflask.models import Base, db
-from macroflask.api import api_bp
+from macroflask.api import api_bp, enable_dynamic_api
 from macroflask.system.rest_mgmt import ResponseHandler
-from macroflask.system.extensions import jwt_manager, logging_manager, sys_logger
+from macroflask.system.sys_ext.loading_jwt import jwt_manager
+from macroflask.system.sys_ext.loading_logger import logging_manager, sys_logger
 from macroflask.system.sys_api import system_api_bp
 
 
 def create_app():
     app = Flask(__name__)
     app.url_map.strict_slashes = False  # disable url redirect ex)'user' and 'user/'
-    print(get_config())
     app.config.from_object(get_config())
 
     @app.errorhandler(Exception)
@@ -45,6 +45,7 @@ def create_app():
     app.config['JWT_SECRET_KEY'] = get_config().SECRET_KEY
 
     # init api
+    enable_dynamic_api(is_enable=True)
     app.register_blueprint(api_bp, url_prefix="/api/v1.0")
     app.register_blueprint(system_api_bp, url_prefix="/api/v1.0/system")
 
