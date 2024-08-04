@@ -1,5 +1,5 @@
 from macroflask.models import db
-from macroflask.system.logging_produce import LoggingProducer
+from macroflask.system.logging_producer import LoggingProducer
 from macroflask.system.model_ext.query_processor import QueryRequest, QueryProcessor
 
 

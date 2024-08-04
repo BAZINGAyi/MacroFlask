@@ -4,7 +4,7 @@ from flask import request, jsonify, abort
 from functools import wraps
 from flask_jwt_extended import jwt_required
 
-from macroflask.system.logging_produce import LoggingProducer
+from macroflask.system.logging_producer import LoggingProducer
 from macroflask.system.rest_mgmt import permission_required, ResponseHandler
 from macroflask.util.os_util import UUIDUtil
 
