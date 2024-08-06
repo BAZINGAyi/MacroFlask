@@ -23,7 +23,7 @@ class LightSqlAlchemy:
         self.set_sqlalchemy_logging(open_logging)
         self.set_logger(logger)
 
-        self.engine = None
+        self.engines = {}
         self.session_local = None
         self.session = None
 
@@ -50,11 +50,15 @@ class LightSqlAlchemy:
 
         self.validate_db_config(db_config)
 
+        # Initialize the database engine for each bind key
         for bind_key, db_obj in db_config.items():
             if bind_key not in self.bind_key_models:
                 raise ValueError(f"No model class registered for bind: {bind_key}")
             base_class = self.bind_key_models[bind_key]
-            self._create_engine_and_session(**db_obj, base_class=base_class, **kwargs)
+            self._create_engine(**db_obj, base_class=base_class, bind_key=bind_key, **kwargs)
+
+        # Binds engines to the Session
+        self._make_session(**kwargs)
 
         # Register teardown function to ensure session is cleaned up at the end of each request.
         app.teardown_appcontext(self._teardown_session)
@@ -76,14 +80,6 @@ class LightSqlAlchemy:
         """
         self.bind_key_models[bind] = model_class
 
-    def _configure_session_binds(self, base_class, engine):
-        """
-        Configure the session binds to automatically use the correct engine based on the base class.
-        """
-        if self.session:
-            self.bind_model_engines[base_class] = engine
-            self.session.configure(binds=self.bind_model_engines)
-
     def _init_non_flask_env(self, db_config: dict, **kwargs):
         """
         Initialize for non-Flask environments with database engine and session configuration.
@@ -95,9 +91,12 @@ class LightSqlAlchemy:
             if bind_key not in self.bind_key_models:
                 raise ValueError(f"No model class registered for bind: {bind_key}")
             base_class = self.bind_key_models[bind_key]
-            self._create_engine_and_session(**db_obj, base_class=base_class, **kwargs)
+            self._create_engine(**db_obj, base_class=base_class, bind_key=bind_key, **kwargs)
 
-    def _create_engine_and_session(self, url, base_class, **kwargs):
+        # Binds engines to the Session
+        self._make_session(**kwargs)
+
+    def _create_engine(self, url, base_class, bind_key, **kwargs):
         url = raw_sa.engine.make_url(url)
         if not url.drivername.startswith("mysql"):
             raise ValueError(
@@ -129,20 +128,33 @@ class LightSqlAlchemy:
         with engine.connect():
             if self.logger:
                 self.logger.info("Connected to database: " + str(url))
+        self.engines[bind_key] = engine
 
+        # Configure the session binds
+        self.bind_model_engines[base_class] = engine
+
+    def _make_session(self, **kwargs):
+        """
+        Create a new session instance for the specified bind key.
+
+        :param bind_key: The bind key for the database.
+        """
         # init session configuration
         session_options = {
             "autocommit": False,
             "autoflush": True,
             "expire_on_commit": True
         }
+
         if "session_options" in kwargs:
             session_options.update(kwargs.pop("session_options"))
         session_local = sessionmaker(**session_options)
+
+        # get the same session for the one same thread
         self.session = scoped_session(session_local)
 
-        # Configure the session binds
-        self._configure_session_binds(base_class, engine)
+        # Configure the session binds, one session for multiple databases
+        self.session.configure(binds=self.bind_model_engines)
 
     def _get_session(self):
         """
@@ -187,7 +199,8 @@ class LightSqlAlchemy:
 
         :return: None
         """
-        self.dispose_engine()
+        for engine in self.engines.values():
+            engine.dispose()
 
     def close_session(self):
         """
