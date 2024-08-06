@@ -32,8 +32,7 @@ def create_app():
         'database1': {
             'url': get_config().DATABASE_URI,
             "model_class": Base,
-            "engine_options": {},
-            "session_options": {}
+            "engine_options": {}
         }
     }
     db.set_logger(sys_logger)
