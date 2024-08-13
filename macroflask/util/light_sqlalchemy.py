@@ -3,7 +3,7 @@ import sqlalchemy.event as raw_sa_event
 import sqlalchemy.exc as raw_sa_exc
 import sqlalchemy.orm as raw_sa_orm
 
-from flask import Flask
+from flask import Flask, g
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, scoped_session
 from contextlib import contextmanager
@@ -18,17 +18,20 @@ class LightSqlAlchemy:
         :param db_config: Database configuration dictionary. Defaults to None.
         :param open_logging: Whether to enable logging for SQLAlchemy. Defaults to False.
         """
-        # set logging
         self.is_flask = is_flask
-        self.set_sqlalchemy_logging(open_logging)
+
+        # set logging
+        self.open_logging = open_logging
+        self.set_sqlalchemy_logging()
         self.set_logger(logger)
 
-        self.engines = {}
-        self.session_local = None
-        self.session = None
+        # Init engines and sessions.
+        # Read represents the read-only database, write represents the write-only or read-write database.
+        self.engines = {"read": {}, "write": {}}
+        self.sessions = {"read": None, "write": None}
 
         # bind base class to the engine
-        self.bind_model_engines = {}
+        self.bind_model_engines = {"read": {}, "write": {}}
         self.bind_key_models = {}
 
         if is_flask:
@@ -69,16 +72,21 @@ class LightSqlAlchemy:
 
         :param exc: Any exception that might have occurred during request processing. Defaults to None.
         """
-        self.close_session()
+        db_operation_type = getattr(g, "session_db_operation_type", None)
+        if db_operation_type:
+            self.close_session(db_operation_type)
 
-    def _register_model(self, bind, model_class):
+            # Remove the session_db_operation_type key from the Flask global context
+            delattr(g, "session_db_operation_type")
+
+    def _register_model(self, bind_key, model_class):
         """
         Register a model class for a specific bind key.
 
-        :param bind: The bind key for the database.
+        :param bind_key: The bind key for the database.
         :param model_class: The model class to register.
         """
-        self.bind_key_models[bind] = model_class
+        self.bind_key_models[bind_key] = model_class
 
     def _init_non_flask_env(self, db_config: dict, **kwargs):
         """
@@ -112,7 +120,7 @@ class LightSqlAlchemy:
             # number of seconds to wait before giving up on getting a connection from the pool
             "pool_timeout": 30,
             # reset the timeout of idle connections in the connection pool (seconds)
-            "pool_recycle": 2 * 60 * 60,
+            "pool_recycle": 4 * 60 * 60,
             # isolation level for the engine
             "isolation_level": "READ COMMITTED",
             # enable the echo mode for debugging
@@ -128,10 +136,13 @@ class LightSqlAlchemy:
         with engine.connect():
             if self.logger:
                 self.logger.info("Connected to database: " + str(url))
-        self.engines[bind_key] = engine
 
+        # Determine whether to read and write separately，
+        db_operation_type = kwargs.get("db_operation_type", "write")
+        # Configure the engine for the specified bind key
+        self.engines[db_operation_type][bind_key] = engine
         # Configure the session binds
-        self.bind_model_engines[base_class] = engine
+        self.bind_model_engines[db_operation_type][base_class] = engine
 
     def _make_session(self, **kwargs):
         """
@@ -148,34 +159,54 @@ class LightSqlAlchemy:
 
         if "session_options" in kwargs:
             session_options.update(kwargs.pop("session_options"))
-        session_local = sessionmaker(**session_options)
 
-        # get the same session for the one same thread
-        self.session = scoped_session(session_local)
+        if self.bind_model_engines["read"]:
+            if self.open_logging and self.logger:
+                self.logger.info("Create read session.")
+            read_session_local = sessionmaker(**session_options)
+            # get the same session for the one same thread
+            read_session = scoped_session(read_session_local)
+            # Configure the session binds, one session for multiple databases
+            read_session.configure(binds=self.bind_model_engines["read"])
+            self.sessions["read"] = read_session
 
-        # Configure the session binds, one session for multiple databases
-        self.session.configure(binds=self.bind_model_engines)
+        if self.bind_model_engines["write"]:
+            write_session_local = sessionmaker(**session_options)
+            if self.open_logging and self.logger:
+                self.logger.info("Create write session.")
+            write_session = scoped_session(write_session_local)
+            write_session.configure(binds=self.bind_model_engines["write"])
+            self.sessions["write"] = write_session
 
-    def _get_session(self):
+    def _get_session(self, db_operation_type):
         """
         Retrieve the current thread's session instance.
+
+        :param db_operation_type: The type of database operation.
 
         :return: The session instance for the current thread.
 
         :exception: ValueError if the session has not been initialized.
         """
-        if not self.session:
+        if not self.sessions[db_operation_type]:
             raise ValueError("Session has not been initialized.")
-        return self.session()
+        if self.logger and self.open_logging:
+            self.logger.info(f"Get {db_operation_type} session.")
+        return self.sessions[db_operation_type]()
 
     @contextmanager
-    def get_db_session(self):
+    def get_db_session(self, db_operation_type="write"):
         """
         Context manager for managing session lifecycle in Flask or non-Flask environments.
 
+        :param db_operation_type: The type of database operation. Defaults to "write".
+
         :yield: The session instance for the current thread.
         """
-        session = self._get_session()
+        if self.is_flask:
+            g.session_db_operation_type = db_operation_type
+
+        session = self._get_session(db_operation_type)
         try:
 
             yield session
@@ -191,7 +222,7 @@ class LightSqlAlchemy:
             # if current env is not flask, close the session.
             # Otherwise, the session will be closed by Flask
             if not self.is_flask:
-                self.close_session()  # Close the session and connections when the context ends
+                self.close_session(db_operation_type)  # Close the session and connections when the context ends
 
     def dispose_engine(self):
         """
@@ -199,27 +230,34 @@ class LightSqlAlchemy:
 
         :return: None
         """
-        for engine in self.engines.values():
+        for engine in self.engines['read'].values():
             engine.dispose()
 
-    def close_session(self):
+        for engine in self.engines['write'].values():
+            engine.dispose()
+
+    def close_session(self, db_operation_type):
         """
+        :param db_operation_type: The type of database operation.
+
         Close the session and release the connection.
 
         :return: None
         """
-        if self.session:
-            self.session.remove()
+        if self.logger and self.open_logging:
+            self.logger.info(f"Close {db_operation_type} session.")
 
-    @staticmethod
-    def set_sqlalchemy_logging(open_logging: bool):
+        if self.sessions[db_operation_type]:
+            self.sessions[db_operation_type].remove()
+
+    def set_sqlalchemy_logging(self):
         """
         Set up logging for SQLAlchemy to log all SQL queries.
         :return:
         """
         import logging
         logging.basicConfig()
-        if open_logging:
+        if self.open_logging:
             logging.getLogger('sqlalchemy.echo').setLevel(logging.INFO)
             logging.getLogger('sqlalchemy.pool').setLevel(logging.INFO)
             logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
@@ -240,6 +278,11 @@ class LightSqlAlchemy:
                 if not db_obj.get("model_class"):
                     raise ValueError(f"model_class is required")
                 self._register_model(key, db_obj["model_class"])
+
+                # Check db_operation_type
+                db_operation_type = db_obj.get("db_operation_type")
+                if db_operation_type and db_operation_type not in ["read", "write"]:
+                    raise ValueError(f"db_operation_type must be 'read' or 'write' with key: {key}")
 
                 # check db url
                 if not db_obj.get("url"):

@@ -1,5 +1,8 @@
 import os
+import profile
+import random
 import sys
+import tracemalloc
 
 # append the root directory of the project to sys.path
 current_directory = os.path.dirname(os.path.abspath(__file__))
@@ -234,10 +237,10 @@ class TestLightSQLAlchemy:
                 users = []
                 for i in range(10):
                     new_user = User(username="d1", email="d1")
-                    # session.add(new_user)
+                    session.add(new_user)
                     # change to bulk
-                    users.append(new_user)
-                session.bulk_save_objects(users)
+                #     users.append(new_user)
+                # session.bulk_save_objects(users)
             # print("insert_d1: " + str(int(time.time()) - start_time))
 
         def insert_d2():
@@ -246,20 +249,28 @@ class TestLightSQLAlchemy:
                 users = []
                 for i in range(10):
                     new_user = User2(username="d2", email="d2")
-                    # session.add(new_user)
-                    users.append(new_user)
-                session.bulk_save_objects(users)
+                    session.add(new_user)
+                #     users.append(new_user)
+                # session.bulk_save_objects(users)
             # print("insert_d2: " + str(int(time.time()) - start_time))
 
         start_time = int(time.time())
-        end_time = start_time + 60 * 5
+        end_time = start_time + 60 * 45
 
         # Test the worker function
         memory_statistic = []
         current_time = start_time
 
+        # tracemalloc.start()
+        # snapshot1 = tracemalloc.take_snapshot()
+        count = 0
         while current_time < end_time:
-            threads = [threading.Thread(target=insert_d1) for _ in range(100)]
+            if current_time > start_time + 60 * 15 and current_time < start_time + 60 * 25:
+                total = random.randint(1, 100)
+            else:
+                total = 100
+
+            threads = [threading.Thread(target=insert_d1) for _ in range(total)]
             for thread in threads:
                 thread.start()
             threads1 = [threading.Thread(target=insert_d2) for _ in range(40)]
@@ -275,6 +286,12 @@ class TestLightSQLAlchemy:
             time.sleep(30)
             current_time = int(time.time())
             memory_statistic.append(show_memory_info("Current"))
+
+        # snapshot2 = tracemalloc.take_snapshot()
+        # top_stats = snapshot2.compare_to(snapshot1, 'lineno')
+        # print("[ Top 10 differences ]")
+        # for stat in top_stats[:10]:
+        #     print(stat)
 
     def flask_env_run(self):
         from sqlalchemy import Integer, String, Column
@@ -394,7 +411,7 @@ class TestLightSQLAlchemy:
         db.init_flask_app(app=app, db_config=db_config_dict)
 
         start_time = int(time.time())
-        end_time = start_time + 60 * 5
+        end_time = start_time + 60 * 15
 
         # Test the worker function
         memory_statistic = []
@@ -403,23 +420,25 @@ class TestLightSQLAlchemy:
             def insert_d1():
                 # print("init engine: " + str(int(time.time()) - start_time))
                 session_id_in_same_thread = None
-                with db.get_db_session() as session:
-                    session_id_in_same_thread = id(session)
-                    # print("session: " + str(id(session)))
-                    # print("init session: " + str(int(time.time()) - start_time))
-                    for i in range(10):
-                        new_user = User(username="d1", email="d1")
-                        session.add(new_user)
+                with app.app_context():
+                    with db.get_db_session() as session:
+                        session_id_in_same_thread = id(session)
+                        # print("session: " + str(id(session)))
+                        # print("init session: " + str(int(time.time()) - start_time))
+                        for i in range(10):
+                            new_user = User(username="d1", email="d1")
+                            session.add(new_user)
 
             def insert_d2():
                 session_id_1_in_same_thread = None
-                with db.get_db_session() as session:
-                    session_id_1_in_same_thread = id(session)
-                    # print("session: " + str(id(session)))
-                    # print("init session: " + str(int(time.time()) - start_time))
-                    for i in range(10):
-                        new_user = User2(username="d2", email="d2")
-                        session.add(new_user)
+                with app.app_context():
+                    with db.get_db_session() as session:
+                        session_id_1_in_same_thread = id(session)
+                        # print("session: " + str(id(session)))
+                        # print("init session: " + str(int(time.time()) - start_time))
+                        for i in range(10):
+                            new_user = User2(username="d2", email="d2")
+                            session.add(new_user)
 
             with app.app_context():
                 threads = [threading.Thread(target=insert_d1) for _ in range(100)]
@@ -438,6 +457,177 @@ class TestLightSQLAlchemy:
             time.sleep(30)
             current_time = int(time.time())
             memory_statistic.append(show_memory_info("Current"))
+
+
+def read_and_write_spilting_in_non_flask():
+    # Q6 测试读写分离
+    from sqlalchemy import Integer, String, Column
+    from sqlalchemy.orm import Mapped
+    from sqlalchemy.orm import DeclarativeBase
+
+    class Base(DeclarativeBase):
+        pass
+
+    class User(Base):
+        __tablename__ = "user"
+
+        id: Mapped[int] = Column(Integer, primary_key=True, autoincrement=True)
+        username: Mapped[str] = Column(String(255), nullable=False)
+        email: Mapped[str] = Column(String(255), nullable=False)
+
+    # 定义数据库连接 URI
+    db_config_dict = {
+        'database1': {
+            'url': get_config().DATABASE_URI,
+            "model_class": Base,
+            "engine_options": {},
+            "session_options": {}
+        },
+        'database2': {
+            'url': get_config().DATABASE_URI_2,
+            "model_class": Base,
+            "engine_options": {},
+            "session_options": {},
+            "db_operation_type": "read"
+        }
+    }
+
+    db = LightSqlAlchemy(is_flask=False, db_config=db_config_dict, open_logging=True)
+
+    def insert_d1():
+        start_time = int(time.time())
+        with db.get_db_session() as session:
+            users = []
+            for i in range(10):
+                new_user = User(username="d1", email="d1")
+                session.add(new_user)
+    def insert_d2():
+        start_time = int(time.time())
+        with db.get_db_session("read") as session:
+            users = []
+            for i in range(10):
+                new_user = User(username="d2", email="d2")
+                session.add(new_user)
+
+    start_time = int(time.time())
+    end_time = start_time + 60 * 45
+
+    # Test the worker function
+    memory_statistic = []
+    current_time = start_time
+
+    while current_time < end_time:
+        if current_time > start_time + 60 * 15 and current_time < start_time + 60 * 25:
+            total = random.randint(1, 100)
+        else:
+            total = 2
+
+        threads = [threading.Thread(target=insert_d1) for _ in range(total)]
+        for thread in threads:
+            thread.start()
+        threads1 = [threading.Thread(target=insert_d2) for _ in range(2)]
+        for thread in threads1:
+            thread.start()
+
+        # wait for all threads to finish
+        for thread in threads:
+            thread.join()
+        for thread in threads1:
+            thread.join()
+
+        time.sleep(30)
+        current_time = int(time.time())
+        memory_statistic.append(show_memory_info("Current"))
+
+
+def read_and_write_spliting_in_flask():
+    # Q6 测试读写分离
+    from sqlalchemy import Integer, String, Column
+    from sqlalchemy.orm import Mapped
+    from sqlalchemy.orm import DeclarativeBase
+
+    class Base(DeclarativeBase):
+        pass
+
+    class User(Base):
+        __tablename__ = "user"
+
+        id: Mapped[int] = Column(Integer, primary_key=True, autoincrement=True)
+        username: Mapped[str] = Column(String(255), nullable=False)
+        email: Mapped[str] = Column(String(255), nullable=False)
+
+    # 定义数据库连接 URI
+    db_config_dict = {
+        'database1': {
+            'url': get_config().DATABASE_URI,
+            "model_class": Base,
+            "engine_options": {},
+            "session_options": {}
+        },
+        'database2': {
+            'url': get_config().DATABASE_URI_2,
+            "model_class": Base,
+            "engine_options": {},
+            "session_options": {},
+            "db_operation_type": "read"
+        }
+    }
+
+    app = Flask(__name__)
+    db = LightSqlAlchemy(is_flask=True, open_logging=False)
+    db.init_flask_app(app, db_config=db_config_dict)
+
+    def insert_d1():
+        start_time = int(time.time())
+        with app.app_context():
+            with db.get_db_session() as session:
+                users = []
+                for i in range(10):
+                    new_user = User(username="d1", email="d1")
+                    session.add(new_user)
+    def insert_d2():
+        start_time = int(time.time())
+        with app.app_context():
+            try:
+                with db.get_db_session("read") as session:
+                    users = []
+                    for i in range(10):
+                        new_user = User(username="d2", email="d2")
+                        session.add(new_user)
+            except Exception as e:
+                print("insert d2 failed")
+
+    start_time = int(time.time())
+    end_time = start_time + 60 * 20
+
+    # Test the worker function
+    memory_statistic = []
+    current_time = start_time
+
+    while current_time < end_time:
+        if current_time > start_time + 60 * 15 and current_time < start_time + 60 * 25:
+            total = random.randint(1, 100)
+        else:
+            total = 2
+
+        threads = [threading.Thread(target=insert_d1) for _ in range(total)]
+        for thread in threads:
+            thread.start()
+        threads1 = [threading.Thread(target=insert_d2) for _ in range(2)]
+        for thread in threads1:
+            thread.start()
+
+        # wait for all threads to finish
+        for thread in threads:
+            thread.join()
+        for thread in threads1:
+            thread.join()
+
+        time.sleep(30)
+        current_time = int(time.time())
+        memory_statistic.append(show_memory_info("Current"))
+
+    print(memory_statistic)
 
 
 if __name__ == '__main__':
@@ -466,8 +656,20 @@ if __name__ == '__main__':
     # show_memory_info("End")
 
     # Q5 flask memory lose
+    # show_memory_info("Start")
+    # TestLightSQLAlchemy().flask_env_run_memory_lose()
+    # time.sleep(60)
+    # show_memory_info("End")
+
+    # Q6 test read and write spilting
+    # show_memory_info("Start")
+    # read_and_write_spilting_in_non_flask()
+    # time.sleep(60)
+    # show_memory_info("End")
+
+    # Q7 test read and write spilting in flask
     show_memory_info("Start")
-    TestLightSQLAlchemy().flask_env_run_memory_lose()
+    read_and_write_spliting_in_flask()
     time.sleep(60)
     show_memory_info("End")
 
