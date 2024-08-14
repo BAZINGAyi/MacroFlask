@@ -1,10 +1,8 @@
 import logging
 import logging.config
 import os
-import time
 from logging.handlers import QueueHandler, QueueListener, RotatingFileHandler, TimedRotatingFileHandler
 from multiprocessing import Queue
-from flask import Flask
 
 
 class CustomizeQueueListener(QueueListener):
@@ -57,7 +55,7 @@ class MacroFlaskLogger:
         self._setup_logging()
 
     def _setup_logging(self):
-        logging.config.dictConfig(self.logger_config)
+        # logging.config.dictConfig(self.logger_config)
         self.queue_listener = CustomizeQueueListener(self.log_queue, *self._get_handlers())
         self.queue_listener.start()
 
