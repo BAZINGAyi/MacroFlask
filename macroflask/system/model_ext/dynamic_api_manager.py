@@ -1,6 +1,6 @@
 import traceback
 
-from flask import request, jsonify, abort
+from flask import request, jsonify, abort, g
 from functools import wraps
 from flask_jwt_extended import jwt_required
 
@@ -45,7 +45,7 @@ class DynamicBlueprintManager:
         @jwt_required()
         @permission_required(module_id=module_id, permission_bitmask=permission_bitmask)
         def view_func(*args, **kwargs):
-            uuid = UUIDUtil.generate_uuid()
+            uuid = g.req_uuid if hasattr(g, 'req_uuid') else UUIDUtil.generate_uuid()
             if action == 'create':
                 return self._create(uuid=uuid)
             elif action == 'read_all':

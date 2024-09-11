@@ -6,6 +6,7 @@ from config import get_config
 from macroflask.models import Base, db
 from macroflask.api import api_bp, enable_dynamic_api
 from macroflask.system.rest_mgmt import ResponseHandler
+from macroflask.system.sys_ext.flask_ext import FlaskRequestMiddleware
 from macroflask.system.sys_ext.loading_jwt import jwt_manager
 from macroflask.system.sys_ext.loading_logger import logging_manager, sys_logger
 from macroflask.system.sys_api import system_api_bp
@@ -16,12 +17,8 @@ def create_app():
     app.url_map.strict_slashes = False  # disable url redirect ex)'user' and 'user/'
     app.config.from_object(get_config())
 
-    @app.errorhandler(Exception)
-    def handle_exception(error):
-        info = traceback.format_exc()
-        sys_logger.error(info)
-        msg = ResponseHandler.convert_error_msg(error)
-        return ResponseHandler.error(msg, status_code=500)
+    # set flask hooks
+    FlaskRequestMiddleware(app, sys_logger).register_hooks()
 
     # init logging
     log_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs")
