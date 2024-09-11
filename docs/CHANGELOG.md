@@ -1,6 +1,6 @@
 # Changelog
 
-## Version 1.0.0 - [08-14-2024]
+## Version 0.0.1 - [08-14-2024]
 
 ### New Features
 
