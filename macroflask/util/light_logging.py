@@ -34,30 +34,35 @@ class CustomizeQueueListener(QueueListener):
 
 
 class MacroFlaskLogger:
-    def __init__(self, config=None, app=None, path=None):
+    def __init__(self, config=None, app=None, path=None, mode='multiprocessing'):
         """
         Initialize the MacroFlaskLogger object.
 
         :param config: Configuration object.
         :param app: Flask application instance, used only in Flask environments.
         :param path: The path to the directory to store log files.
-
+        :param mode: The mode for the logger, 'multiprocessing' or 'multithreading'.
         """
         self.log_queue = Queue(-1)  # -1 means unlimited size
         self.logger_config = config
         self.path = path
+        self.mode = mode  # Either 'multiprocessing' or 'multithreading'
+
         if config:
             self._setup_logging()
 
-    def init_flask_logger(self, config, app, path):
+    def init_flask_logger(self, config, app, path, mode='multiprocessing'):
         self.logger_config = config
         self.path = path
         self._setup_logging()
 
     def _setup_logging(self):
-        # logging.config.dictConfig(self.logger_config)
-        self.queue_listener = CustomizeQueueListener(self.log_queue, *self._get_handlers())
-        self.queue_listener.start()
+        if self.mode == 'multiprocessing':
+            self.queue_listener = CustomizeQueueListener(self.log_queue, *self._get_handlers())
+            self.queue_listener.start()
+
+        elif self.mode == 'multithreading':
+            logging.config.dictConfig(self.logger_config)
 
     def _get_handlers(self):
         handlers = []
@@ -138,12 +143,14 @@ class MacroFlaskLogger:
 
         :return:  The logger instance.
         """
+        not_init_msg = "Logger configuration is not set. Please call init_flask_logger() or set logger_config first."
         if not self.logger_config:
-            raise ValueError("Logger configuration is not set. Please call init_flask_logger() first.")
+            raise ValueError(not_init_msg)
 
         logger = logging.getLogger(name)
-        logger.setLevel(logging.DEBUG)
-        logger.addHandler(QueueHandler(self.log_queue))
+        if self.mode == 'multiprocessing':
+            logger.setLevel(logging.DEBUG)
+            logger.addHandler(QueueHandler(self.log_queue))
         return logger
 
     def shutdown(self):

@@ -39,6 +39,7 @@ class FlaskRequestMiddleware:
 
     def handle_exception(self, error):
         info = traceback.format_exc()
-        self.logger.error(info)
+        if self.logger:
+            self.logger.error(info)
         msg = ResponseHandler.convert_error_msg(error)
         return ResponseHandler.error(msg, status_code=500)
