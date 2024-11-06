@@ -94,6 +94,26 @@ class TimeUtils:
             timestamp -= 8 * 3600  # Convert from China time zone to UTC
         return timestamp
 
+    @staticmethod
+    def get_current_weekday():
+        """
+        Get the current weekday as an integer (0 for Monday, 6 for Sunday).
+
+        :return: Integer representing the current weekday
+        """
+        return datetime.now().weekday()
+
+    @staticmethod
+    def convert_to_date_from_time_string(time_str, from_format='%Y-%m-%d %H:%M:%S'):
+        """
+        Convert a time string to a date format.
+
+        :param time_str: Time string to convert
+        :param from_format: Format of the input time string
+        :return: Date object
+        """
+        return datetime.strptime(time_str, from_format)
+
 
 if __name__ == '__main__':
     # 1. Get the current time
@@ -124,3 +144,10 @@ if __name__ == '__main__':
     # If the UTC time is in China time zone (UTC+8), set `is_china_time_zone=True`
     print("Parsed Unix Timestamp (China Time Zone):",
           TimeUtils.parse_utc_text(utc_text, is_china_time_zone=True))
+
+    # 6. Get the current weekday
+    print("Current Weekday (0: Monday, 6: Sunday):", TimeUtils.get_current_weekday())
+
+    # 7. Convert a time string to a standard format
+    time_str = "2022-01-01 12:00:00"  # Example time string
+    print("Standardized Time String:", str(TimeUtils.convert_to_date_from_time_string(time_str).date()))
